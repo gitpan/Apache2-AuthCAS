@@ -1,0 +1,7 @@
+Revision history for mod_perl2 module Apache2::AuthCAS
+
+Release 0.1
+===========
+1.0  Wed Mar 21 13:00:00 2007
+    - initial version based on release 0.4 of Apache::CAS by David Castro
+
