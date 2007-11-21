@@ -5,6 +5,8 @@
 # Authentication Service
 package Apache2::AuthCAS;
 
+$Apache2::AuthCAS::VERSION = "0.2";
+
 use strict;
 use warnings FATAL => 'all';
 
@@ -180,7 +182,7 @@ sub authenticate($$)
     # Check for a proxy receptor call
     if ($params{'pgt'} and $params{'pgtIou'})
     {
-        return $self->proxy_receptor();
+        return $self->proxy_receptor($params{'pgtIou'}, $params{'pgt'});
     }
 
     # Check for a session cookie
@@ -361,6 +363,7 @@ sub redirect_login($)
     my $service = $self->this_url(1);
     $self->logMsg("redirecting to CAS for service: '$service'", $LOG_INFO);
 
+    $service = uri_escape($service);
     $self->setHeader(0, 'Location', "https://"
         . $self->casConfig("Host") . ":" . $self->casConfig("Port")
         . $self->casConfig("LoginUri") . "?service=$service");
@@ -383,6 +386,8 @@ sub redirect($;$$)
 
         $self->logMsg("redirecting to error page") if ($errcode);
         $errcode = "" if (!$errcode);
+
+        $service = uri_escape($service);
         $self->setHeader(0, 'Location'
             , "$url?login_url=https://" . $self->casConfig("Host")
             . ":" . $self->casConfig("Port") . $self->casConfig("LoginUri")
@@ -425,6 +430,7 @@ sub validate_service_ticket($$$)
         $url = $self->casConfig("ServiceValidateUri") . "?";
     }
 
+    $service = uri_escape($service);
     $url .= "service=$service&ticket=$ticket";
 
     $self->logMsg("request URL: '$url'", $LOG_DEBUG);
@@ -480,21 +486,16 @@ sub validate_service_ticket($$$)
     return ($errorMsg, $user, $pgtiou);
 }
 
-sub proxy_receptor($)
+sub proxy_receptor($$$)
 {
-    my($self) = @_;
+    my($self, $pgtiou, $pgt) = @_;
 
     # This is the proxy receptor.
     # We should only enter here when CAS sends us the PGTIOU and the PGT
-    my $uri   = $self->{'request'}->parsed_uri;
-    my %params = get_parameters($uri->query);
-
-    my $pgtiou = $params{'pgtIou'} || "";
-    my $pgt    = $params{'pgt'}    || "";
-
-    $self->logMsg("proxy receptor invoked with '$pgtiou' => '$pgt'", $LOG_DEBUG);
     if ($pgtiou and $pgt)
     {
+        $self->logMsg("proxy receptor invoked with '$pgtiou' => '$pgt'", $LOG_DEBUG);
+
         # save the pgtiou/pgt mapping
         if (!$self->set_pgt($pgtiou, $pgt))
         {
@@ -514,7 +515,7 @@ sub proxy_receptor($)
     {
         $self->logMsg("invalid proxy receptor call - missing ticket information"
             , $LOG_DEBUG);
-        return $self->redirect($self->casConfig("ErrorUrl") , $ERROR_CODES{"DB"});
+        return $self->redirect($self->casConfig("ErrorUrl") , $ERROR_CODES{"PGT_RECEPTOR"});
     }
 }
 
@@ -839,7 +840,7 @@ sub this_url($$;$)
 
     if ($serviceOverride and my $service = $self->casConfig("Service"))
     {
-        return uri_escape($service);
+        return $service;
     }
 
     my $url = $self->{'request'}->construct_url();
@@ -869,6 +870,7 @@ sub parse_query_parameters($$)
     {
         my($key, $value) = split(/=/, $param);
 
+        $value = "" if (!$value);
         $self->logMsg("PARAM: '$key' => '$value'", $LOG_DEBUG);
         $params{$key} = $value;
     }

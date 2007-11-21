@@ -2,6 +2,17 @@ Revision history for mod_perl2 module Apache2::AuthCAS
 
 Release 0.1
 ===========
-1.0  Wed Mar 21 13:00:00 2007
+0.1  Wed Mar 21 13:00:00 2007
     - initial version based on release 0.4 of Apache::CAS by David Castro
 
+Release 0.2
+===========
+0.2  Wed Nov 21 10:00:00 2007
+    - Added mod_perl2 as a dependency for the build
+    - Added VERSION variable to the module
+    - Implemented David Westlund's patch for CPAN bug #30548,
+        "GET value for service not escaped"
+    - Corrected an error code returned from proxy_receptor() 
+        and simplified the function slightly
+    - Corrected CPAN bug #30356,
+        "Error when GET parameter without value is sent to a page"

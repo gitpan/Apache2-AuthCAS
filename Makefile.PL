@@ -10,6 +10,7 @@ my %requiredModules = (
     "MIME::Base64" => 0,
     "URI::Escape"  => 0,
     "XML::Simple"  => 0,
+    "mod_perl2"    => 0,
 );
 
 my @moduleNames = sort(keys(%requiredModules));

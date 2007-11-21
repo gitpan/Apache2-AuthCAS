@@ -12,6 +12,7 @@ use Apache2::Const -compile => qw(OR_ALL);
 use Apache2::CmdParms ();
 use Apache2::Module ();
 use Apache2::Directive ();
+use Apache2::ServerUtil;
 
 my @directives = (
     { cmd_data => 'Host',                err_append => 'hostname',      },
