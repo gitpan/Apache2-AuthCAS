@@ -5,7 +5,7 @@
 # Authentication Service
 package Apache2::AuthCAS;
 
-$Apache2::AuthCAS::VERSION = "0.2";
+$Apache2::AuthCAS::VERSION = "0.3";
 
 use strict;
 use warnings FATAL => 'all';
@@ -63,6 +63,7 @@ my %DEFAULTS = (
         "ErrorUrl"               => "http://localhost/cas/error/",
         "SessionCookieName"      => "APACHECAS",
         "SessionCookieDomain"    => undef,
+        "SessionCookieSecure"    => 0,
         "SessionTimeout"         => 1800,
         "RemoveTicket"           => 0,
         "NumProxyTickets"        => 0,
@@ -160,6 +161,27 @@ sub authenticate($$)
     $self->{'request'} = $r;
     $self->getApacheConfig();
 
+    # Check for a logout request (CAS 3 single sign-off)
+    my $apr = Apache2::Request->new($r);
+    my $logoutRequest = $apr->param('logoutRequest');
+
+    if ($logoutRequest)
+    {
+        $logoutRequest =~ /<samlp:SessionIndex>(ST-[0-9]+-[^<]+)<\/samlp:SessionIndex>/;
+        my $delete_service_ticket = $1;
+
+        $self->logMsg("deleting session mapping for service_ticket='$delete_service_ticket'", $LOG_DEBUG);
+
+        my $dbh = $self->dbConnect() or return 0;
+        $dbh->do("DELETE FROM " . $self->casConfig("DbSessionTable")
+            . " WHERE service_ticket= ?", undef, $delete_service_ticket 
+        );
+        if ($dbh->err)
+        {
+            $self->logMsg("error deleting session mapping for service_ticket='$delete_service_ticket'", $LOG_DEBUG);
+        }
+    }
+
     # perform any cleanup that is needed
     $self->cleanup();
 
@@ -168,7 +190,6 @@ sub authenticate($$)
     my $authenticated = $r->subprocess_env->{'AUTHENTICATED'} || "";
     $self->logMsg("authenticated='$authenticated'", $LOG_DEBUG);
     return (Apache2::Const::OK) if ($authenticated eq "true");
-
 
     # Parse the query string to get the ticket, plus any GET variables
     # to rebuild our service string (which is needed for CAS to send the
@@ -221,7 +242,7 @@ sub authenticate($$)
         }
 
         # map a new session id to this pgtiou and give the client a cookie
-        my $sid = $self->create_session($user, $pgtiou);
+        my $sid = $self->create_session($user, $pgtiou, $ticket);
 
         if (!$sid)
         {
@@ -233,6 +254,10 @@ sub authenticate($$)
         if ($self->casConfig("SessionCookieDomain"))
         {
             $cookie .= ";domain=." . $self->casConfig("SessionCookieDomain");
+        }
+        if ($self->casConfig("SessionCookieSecure"))
+        {
+            $cookie .= ";secure";
         }
 
         # send the cookie to the browser
@@ -586,9 +611,9 @@ sub get_proxy_tickets($$;$$)
 }
 
 # place data in the session
-sub create_session($$;$)
+sub create_session($$$$)
 {
-    my($self, $uid, $pgtiou) = @_;
+    my($self, $uid, $pgtiou, $ticket) = @_;
 
     $self->logMsg("creating session for uid='$uid'"
         . ($pgtiou ? ", pgtiou='$pgtiou'" : ""), $LOG_DEBUG);
@@ -605,8 +630,9 @@ sub create_session($$;$)
     my $dbh = $self->dbConnect() or return undef;
 
     $dbh->do("INSERT INTO " . $self->casConfig("DbSessionTable")
-        . " (id, last_accessed, user_id, pgtiou) VALUES (?, ?, ?, ?)"
-        , undef, $sid, time(), $uid, $pgtiou
+        . " (id, last_accessed, user_id, pgtiou, service_ticket)"
+        . " VALUES (?, ?, ?, ?, ?)"
+        , undef, $sid, time(), $uid, $pgtiou, $ticket
     );
 
     if ($dbh->err)
@@ -895,9 +921,13 @@ C<perl -MCPAN -e 'install Apache2::AuthCAS'>
 
 =head2 General
 
+The I<Apache2::AuthCAS> module allows a user to protect arbitrary content
+on an Apache server with JA-SIG CAS.
+
 Add the following lines to your Apache configuration file to load the custom
 configuration tags for CAS and allow for CAS authentication:
 
+    PerlLoadModule APR::Table
     PerlLoadModule Apache2::AuthCAS::Configuration
     PerlLoadModule Apache2::AuthCAS
 
@@ -919,9 +949,6 @@ Any options that are not set in the Apache configuration will default to the
 values preconfigured in the Apache2::AuthCAS module.  Either explicitly override
 those options that do not match your environment or set them in the module
 itself.
-
-The I<Apache2::AuthCAS> module allows a user to protect arbitrary content
-on an Apache server with JA-SIG CAS.
 
 =head2 Requirements
 
@@ -1050,9 +1077,32 @@ for Apache2::AuthCAS.
 
 =head1 NOTES
 
-Any options that are not set in the Apache configuration will default to the
-values preconfigured in the Apache2::AuthCAS module.  You should explicitly
-override those options that do not match your environment.
+Configuration
+
+    Any options that are not set in the Apache configuration will default to the
+    values preconfigured in the Apache2::AuthCAS module.  You should explicitly
+    override those options that do not match your environment.
+
+Database
+
+    If you installed this module via CPAN shell, cpan2rpm, or some other automated installer, don't forget to create the session table!
+
+    The SQL-92 format of the table is:
+        CREATE TABLE cas_sessions (
+            id             varchar(32) not null primary key,
+            last_accessed  int8 not null,
+            user_id        varchar(32) not null,
+            pgtiou         varchar(64),
+            pgt            varchar(64)
+        );
+    Add indexes and adjust as appropriate for your database and usage.
+
+SSL
+
+    Be careful not to use the CASSessionCookieSecure flag with an HTTP resource.
+    If this flag is set and the protocol is HTTP, then no cookie will get sent
+    to Apache and Apache2::AuthCAS may act very strange.
+    Be sure to set CASSessionCookieSecure only on HTTPS resources!
 
 =head1 COMPATIBILITY
 

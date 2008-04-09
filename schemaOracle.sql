@@ -6,6 +6,7 @@ CREATE TABLE cas_sessions (
     , user_id           varchar2(32)    not null
     , pgtiou            varchar2(256)
     , pgt               varchar2(256)
+    , service_ticket    varchar2(256)
     , CONSTRAINT cas_sessions_pk
         PRIMARY KEY (id) USING INDEX TABLESPACE &&ts_idx
 ) TABLESPACE &&ts_data;

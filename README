@@ -1,4 +1,4 @@
-Apache2/AuthCAS version 0.2
+Apache2/AuthCAS version 0.3
 ===========================
 
 The Apache2::AuthCAS module allows a user to protect their non-Java content on
@@ -23,6 +23,10 @@ INSTALLATION
 
     Of course <dbhost>/<dbuser>/<dbname> should be replaced above by the
     settings that match your environment.
+
+    If you are upgrading from a previous version, a new field has been added
+    to the session table!  Please be aware of this and compare the schema
+    files to your installation!
 
 DEPENDENCIES
 

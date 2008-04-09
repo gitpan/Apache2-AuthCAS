@@ -16,3 +16,13 @@ Release 0.2
         and simplified the function slightly
     - Corrected CPAN bug #30356,
         "Error when GET parameter without value is sent to a page"
+
+Release 0.3
+===========
+0.3  Wed Apr 09 00:45:00 2008
+    - Added support for CAS 3.1 single sign out
+        patch submitted by Enrico Cavalli
+    - Added support for SSL-only cookies per RFC 2109
+        patch submitted by David Lowry
+    - Updated database schema examples to accomodate recommended field sizes
+        and support the single sign out patch.

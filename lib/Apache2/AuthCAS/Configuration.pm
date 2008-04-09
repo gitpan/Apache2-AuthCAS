@@ -30,6 +30,7 @@ my @directives = (
     { cmd_data => 'ErrorUrl',            err_append => 'uri',           },
     { cmd_data => 'SessionCookieName',   err_append => 'name',          },
     { cmd_data => 'SessionCookieDomain', err_append => 'name',          },
+    { cmd_data => 'SessionCookieSecure', err_append => '0/1',           },
     { cmd_data => 'SessionTimeout',      err_append => 'name',          },
     { cmd_data => 'RemoveTicket',        err_append => '0/1',           },
     { cmd_data => 'NumProxyTickets',     err_append => 'number',        },
