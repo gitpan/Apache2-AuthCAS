@@ -5,7 +5,7 @@
 # Authentication Service
 package Apache2::AuthCAS;
 
-$Apache2::AuthCAS::VERSION = "0.3";
+$Apache2::AuthCAS::VERSION = "0.4";
 
 use strict;
 use warnings FATAL => 'all';
@@ -19,7 +19,7 @@ use Apache2::URI ();
 
 use Apache2::Const -compile => qw(FORBIDDEN HTTP_MOVED_TEMPORARILY OK DECLINED HTTP_OK :log);
 
-use mod_perl2 qw(StackedHandlers MethodHandlers Authen Authz);
+use mod_perl2;
 use vars qw($INITIALIZED $SESSION_CLEANUP_COUNTER);
 
 use APR::URI;
@@ -48,42 +48,36 @@ my %ERROR_CODES = (
 );
 
 my %DEFAULTS = (
-        "Host"                   => "localhost",
-        "Port"                   => "443",
-        "LoginUri"               => "/cas/login",
-        "LogoutUri"              => "/cas/logout",
-        "ProxyUri"               => "/cas/proxy",
-        "ProxyValidateUri"       => "/cas/proxyValidate",
-        "ServiceValidateUri"     => "/cas/serviceValidate",
+        "Host"                    => "localhost",
+        "Port"                    => "443",
+        "LoginUri"                => "/cas/login",
+        "LogoutUri"               => "/cas/logout",
+        "ProxyUri"                => "/cas/proxy",
+        "ProxyValidateUri"        => "/cas/proxyValidate",
+        "ServiceValidateUri"      => "/cas/serviceValidate",
 
-        "LogLevel"               => 0,
-        "PretendBasicAuth"       => 0,
-        "Service"                => undef,
-        "ProxyService"           => undef,
-        "ErrorUrl"               => "http://localhost/cas/error/",
-        "SessionCookieName"      => "APACHECAS",
-        "SessionCookieDomain"    => undef,
-        "SessionCookieSecure"    => 0,
-        "SessionTimeout"         => 1800,
-        "RemoveTicket"           => 0,
-        "NumProxyTickets"        => 0,
+        "LogLevel"                => 0,
+        "PretendBasicAuth"        => 0,
+        "Service"                 => undef,
+        "ProxyService"            => undef,
+        "ErrorUrl"                => "http://localhost/cas/error/",
+        "SessionCleanupThreshold" => 10,
+        "SessionCookieName"       => "APACHECAS",
+        "SessionCookieDomain"     => undef,
+        "SessionCookieSecure"     => 0,
+        "SessionTimeout"          => 1800,
+        "RemoveTicket"            => 0,
+        "NumProxyTickets"         => 0,
 
-        "DbDriver"               => "Pg",
-        "DbDataSource"           => "dbname=apache_cas;host=localhost;port=5432",
-        "DbSessionTable"         => "cas_sessions",
-        "DbUser"                 => "cas",
-        "DbPass"                 => "cas",
+        "DbDriver"                => "Pg",
+        "DbDataSource"            => "dbname=apache_cas;host=localhost;port=5432",
+        "DbSessionTable"          => "cas_sessions",
+        "DbUser"                  => "cas",
+        "DbPass"                  => "cas",
 );
-
-
-# session cleanup threshold (1 in N requests, session cleanup will occur for
-# each Apache thread or process - i.e. for 10 processes, it may take as many as
-# 100 requests before session cleanup is performed for a threshold of 10)
-my $SESSION_CLEANUP_THRESHOLD = "10";
 
 # default to 0
 $SESSION_CLEANUP_COUNTER = 0 if (!defined($SESSION_CLEANUP_COUNTER));
-
 
 sub dbConnect($)
 {
@@ -100,6 +94,7 @@ sub dbConnect($)
         $self->logMsg("db connect error: $DBI::errstr");
         return undef;
     }
+
     return $dbh;
 }
 
@@ -161,9 +156,13 @@ sub authenticate($$)
     $self->{'request'} = $r;
     $self->getApacheConfig();
 
+    # grab the uri that was requested
+    my $uri = $r->parsed_uri;
+
     # Check for a logout request (CAS 3 single sign-off)
-    my $apr = Apache2::Request->new($r);
-    my $logoutRequest = $apr->param('logoutRequest');
+    my $query = $uri->query() || "";
+    $query =~ /logoutRequest=(.*?)[&;]/;
+    my $logoutRequest = $1;
 
     if ($logoutRequest)
     {
@@ -178,7 +177,7 @@ sub authenticate($$)
         );
         if ($dbh->err)
         {
-            $self->logMsg("error deleting session mapping for service_ticket='$delete_service_ticket'", $LOG_DEBUG);
+            $self->logMsg("error deleting session mapping for service_ticket='$delete_service_ticket' ($DBI::errstr)", $LOG_DEBUG);
         }
     }
 
@@ -194,9 +193,6 @@ sub authenticate($$)
     # Parse the query string to get the ticket, plus any GET variables
     # to rebuild our service string (which is needed for CAS to send the
     # client back to the originating service).
-
-    # grab the uri that was requested
-    my $uri   = $r->parsed_uri;
 
     my %params = $self->parse_query_parameters($uri->query);
 
@@ -351,7 +347,7 @@ sub cleanup()
 
     # reset counter if we have reached our threshold
     $SESSION_CLEANUP_COUNTER = 0
-        if ($SESSION_CLEANUP_COUNTER >= $SESSION_CLEANUP_THRESHOLD);
+        if ($SESSION_CLEANUP_COUNTER >= $self->casConfig("SessionCleanupThreshold"));
 }
 
 sub add_basic_auth($$)
@@ -637,7 +633,7 @@ sub create_session($$$$)
 
     if ($dbh->err)
     {
-        $self->logMsg("error creating session", $LOG_DEBUG);
+        $self->logMsg("error creating session ($DBI::errstr)", $LOG_DEBUG);
         undef($sid);
     }
 
@@ -663,7 +659,7 @@ sub touch_session($$)
     my $rc = 1;
     if ($dbh->err)
     {
-        $self->logMsg("error touching session", $LOG_DEBUG);
+        $self->logMsg("error touching session ($DBI::errstr)", $LOG_DEBUG);
         $rc = 0;
     }
 
@@ -720,7 +716,7 @@ sub delete_session_data($$)
     my $rc = 1;
     if ($dbh->err)
     {
-        $self->logMsg("error deleting session mapping for sid='$sid'", $LOG_DEBUG);
+        $self->logMsg("error deleting session mapping for sid='$sid' ($DBI::errstr)", $LOG_DEBUG);
         $rc = 0;
     }
 
@@ -748,7 +744,7 @@ sub delete_expired_sessions($)
     my $rc = 1;
     if ($dbh->err)
     {
-        $self->logMsg("error deleting expired sessions", $LOG_ERROR);
+        $self->logMsg("error deleting expired sessions ($DBI::errstr)", $LOG_ERROR);
         $rc = 0;
     }
 
@@ -776,7 +772,7 @@ sub set_pgt($$$)
     my $rc = 1;
     if ($dbh->err)
     {
-        $self->logMsg("error adding map", $LOG_ERROR);
+        $self->logMsg("error adding map ($DBI::errstr)", $LOG_ERROR);
         $rc = 0;
     }
 
@@ -1031,33 +1027,40 @@ These are the Apache configuration options, defaults, and descriptions
 for Apache2::AuthCAS.
 
     # The CAS server parameters.  These should be self explanatory.
-    CASHost                 "localhost"
-    CASPort                 "443"
-    CASLoginUri             "/cas/login"
-    CASLogoutUri            "/cas/logout"
-    CASProxyUri             "/cas/proxy"
-    CASProxyValidateUri     "/cas/proxyValidate"
-    CASServiceValidateUri   "/cas/serviceValidate"
+    CASHost                     "localhost"
+    CASPort                     "443"
+    CASLoginUri                 "/cas/login"
+    CASLogoutUri                "/cas/logout"
+    CASProxyUri                 "/cas/proxy"
+    CASProxyValidateUri         "/cas/proxyValidate"
+    CASServiceValidateUri       "/cas/serviceValidate"
 
     # The level of logging, ERROR(0) - EMERG(4)
-    CASLogLevel             0
+    CASLogLevel                 0
 
     # Should we set the 'Basic' authentication header?
-    CASPretendBasicAuth     0
+    CASPretendBasicAuth         0
 
     # Where do we redirect if there is an error?
-    CASErrorUrl             "http://localhost/cas/error/"
+    CASErrorUrl                 "http://localhost/cas/error/"
+
+    # Session cleanup threshold (1 in N requests)
+    # Session cleanup will occur for each Apache thread or process -
+    #   i.e. for 10 processes, it may take as many as 100 requests before
+    # session cleanup is performed with a threshold of 10)
+
+    CASSessionCleanupThreshold  10
 
     # Session cookie configuration for this service
-    CASSessionCookieDomain  ""
-    CASSessionCookieName    "APACHECAS"
-    CASSessionTimeout       1800
+    CASSessionCookieDomain      ""
+    CASSessionCookieName        "APACHECAS"
+    CASSessionTimeout           1800
 
     # Should the ticket parameter be removed from the URL?
-    CASRemoveTicket         0
+    CASRemoveTicket             0
 
     # Optional override for this service name
-    CASService              ""
+    CASService                  ""
 
     # If you are proxying for a backend service you will need to specify
     # these parameters.  The service is the name of the backend service
@@ -1065,15 +1068,15 @@ for Apache2::AuthCAS.
     # for pgtiou/pgt mappings from the CAS server, and the final parameter
     # specifies how many proxy tickets should be requested for the backend
     # service.
-    CASProxyService         ""
-    CASNumProxyTickets      0
+    CASProxyService             ""
+    CASNumProxyTickets          0
 
     # Database parameters for session and ticket management
-    CASDbDriver             "Pg"
-    CASDbDataSource         "dbname=apache_cas;host=localhost;port=5432"
-    CASDbSessionTable       "cas_sessions"
-    CASDbUser               "cas"
-    CASDbPass               "cas"
+    CASDbDriver                 "Pg"
+    CASDbDataSource             "dbname=apache_cas;host=localhost;port=5432"
+    CASDbSessionTable           "cas_sessions"
+    CASDbUser                   "cas"
+    CASDbPass                   "cas"
 
 =head1 NOTES
 
@@ -1090,10 +1093,11 @@ Database
     The SQL-92 format of the table is:
         CREATE TABLE cas_sessions (
             id             varchar(32) not null primary key,
-            last_accessed  int8 not null,
+            last_accessed  int8        not null,
             user_id        varchar(32) not null,
-            pgtiou         varchar(64),
-            pgt            varchar(64)
+            pgtiou         varchar(256),
+            pgt            varchar(256)
+            service_ticket varchar(256)
         );
     Add indexes and adjust as appropriate for your database and usage.
 

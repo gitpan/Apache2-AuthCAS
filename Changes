@@ -26,3 +26,14 @@ Release 0.3
         patch submitted by David Lowry
     - Updated database schema examples to accomodate recommended field sizes
         and support the single sign out patch.
+
+Release 0.4
+===========
+0.4  Fri Jan 02 13:07:00 2009
+    - Fixed CPAN bug #38295
+        Removed the reliance on Apache2::Request and thus the need for libapreq2
+    - Fixed CPAN bug #33631
+        Removed unneeded hook specifiers on "use mod_perl2" line.
+    - Added DBI::errstr to log messages resulting from database errors.
+    - Added a configuration option, CASSessionCleanupThreshold.
+        See the manpage.
